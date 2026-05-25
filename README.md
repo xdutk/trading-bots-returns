@@ -48,26 +48,26 @@ QuantProtocol/
 └── .gitignore              # Filtros de exclusión para GitHub
 🚀 Instalación y Setup
 Clonar entorno virtual:
-
+```
 ```Bash
 git clone [https://github.com/xdutk/QuantProtocol.git](https://github.com/xdutk/QuantProtocol.git)
 cd QuantProtocol
 python -m venv venv
 source venv/bin/activate  # En Windows: venv\Scripts\activate
-
+```
 # Instalar dependencias:
 
 ```Bash
 pip install pandas numpy pandas-ta scikit-learn hmmlearn tensorflow websockets python-binance streamlit psutil google-genai requests python-dotenv feedparser
 # Opcional (Recomendado): pip install tensorflow[and-cuda]
 Variables de Entorno (.env):
-
+```
 ```Fragmento de código
 BINANCE_API_KEY="tu_api_key"
 BINANCE_API_SECRET="tu_api_secret"
 BOT1_LIVE="true" # false = Ejecución Real
 BOT5_LIVE="true"
-
+```
 # 🧠 Flujo de Ejecución Cuantitativa (Runbook)
 
 Entrenamiento (scripts/): Entrenar modelos de IA offline (train_bot4.py, train_bot5_hft.py).
