@@ -50,7 +50,7 @@ QuantProtocol/
 Clonar entorno virtual:
 ```
 ```Bash
-git clone [https://github.com/xdutk/QuantProtocol.git](https://github.com/xdutk/QuantProtocol.git)
+git clone [https://github.com/xdutk/trading-bots-returns.git](https://github.com/xdutk/trading-bots-returns.git)
 cd QuantProtocol
 python -m venv venv
 source venv/bin/activate  # En Windows: venv\Scripts\activate
