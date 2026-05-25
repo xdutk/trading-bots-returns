@@ -15,7 +15,7 @@ La espina dorsal del protocolo. Separa la lógica matemática de la gestión ope
 
 ### 2. Los Motores Tácticos (`bots/`)
 QuantProtocol despliega 5 escuadrones cuantitativos independientes:
-* **Bot 1 (FRPV - Fractal Reversion):** Estrategia multi-timeframe (5m y 1H). Utiliza medias adaptativas (KAMA) y Regresión Lineal para ineficiencias de corto plazo.
+* **Bot 1 (Reversal):** Ineficiencias de corto plazo.
 * **Bot 2 (HMM + LSTM):** Inteligencia Artificial Secuencial. Un *Hidden Markov Model* detecta el régimen de mercado, y una red LSTM predice la probabilidad de éxito de cruces técnicos.
 * **Bot 3 (Adaptive Cross):** Motor matemático dinámico que ajusta períodos de medias móviles según la varianza normalizada del mercado (filtro de histéresis).
 * **Bot 4 (Reinforcement Learning - Swing):** Agente DQN que decide acciones y apalancamiento dinámico (x1-x25) aprendiendo del mercado continuo.
