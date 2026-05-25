@@ -1,0 +1,11 @@
+.env
+venv/
+venv_wsl/
+__pycache__/
+*.pyc
+data/
+logs/
+models/
+models_backtest_temp/
+backtest_results/
+sentiment_score.txt

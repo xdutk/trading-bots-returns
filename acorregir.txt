@@ -1,0 +1,69 @@
+El problema: El Risk Engine está "ciego"
+Mirá esta línea que está en el método _open_position de ambos bots:
+
+Python
+# Simulamos que somos el único bot queriendo operar en este exacto milisegundo
+signals = {self.bot_id: direction} 
+size = self.risk_engine.get_final_position_size(self.bot_id, direction, signals)
+¿Te acordás que en el Blueprint definimos el Global Exposure Manager? Esa regla decía que si 3 o más bots intentan ir en la misma dirección (ej. todos LONG), a los excedentes se les recorta el tamaño de la posición a la mitad para no sobreexponerte.
+
+El problema es que, como armamos los bots para que sean autónomos y asíncronos, cada bot le está mandando al Risk Engine solo su propia señal (signals = {self.bot_id: direction}).
+El Risk Engine lee eso y dice: "Ah, hay un solo bot yendo LONG, está todo bien, le doy el 100% del capital". La regla de los 3 bots no se va a activar nunca en producción.
+
+¿Cómo lo vamos a solucionar? (No lo corrijas ahora)
+No hace falta que toquemos los archivos de los bots ahora. La solución elegante es arreglar esto en la capa superior, cuando armemos el orquestador (main.py).
+
+Ahí vamos a hacer que el RiskEngine no dependa de lo que le pase cada bot, sino que mire directamente a los CapitalManagers (que ya los tiene en su __init__) para ver cuántos bots tienen el estado OPEN_LONG u OPEN_SHORT en ese exacto milisegundo antes de autorizar la plata.
+
+-----------------------------------------------
+
+La matemática de por qué estamos a salvo (por ahora):
+En nuestro DataFeed, el buffer_size lo seteamos en 200 velas (o un poco más si lo ajustás).
+Cada 5 minutos, cuando cierra la vela, el Bot 3 ejecuta ese loop for de Python.
+Iterar un array de 200 elementos en Python puro toma literalmente fracciones de milisegundo. Aún si tuviéramos los 20 tickers del Top 20 corriendo este bot en paralelo, serían 4000 iteraciones en total cada 5 minutos. Tu CPU se ríe de ese volumen de cálculo.
+
+El cuello de botella de tu sistema hoy va a ser la latencia de red de Binance o el tiempo que tarda el disco en escribir el CSV, no este loop matemático.
+
+¿Cuándo sería un problema real este loop?
+En un Backtest: Si en vez de correrlo en vivo, agarrás este Bot 3 y le pasás los CSVs de 4 años de historia (millones de filas) para ver cómo hubiera rendido, ese loop te va a tardar minutos (o horas) en procesar.
+
+Si bajamos a temporalidad de Ticks (Milisegundos): Si operáramos Order Book en tiempo real en vez de velas de 5m.
+
+La solución a futuro (El As bajo la manga)
+Como bien dice Claude, si el día de mañana QuantProtocol maneja millones de dólares, opera en velas de 1 segundo o querés hacer backtesting masivo, la solución no es cambiar el código, es agregar una librería llamada numba.
+
+Solo tendríamos que importar Numba y ponerle un decorador a la función, así:
+
+Python
+from numba import jit
+
+@jit(nopython=True) # <--- Esto compila el código Python a C en tiempo real
+def _calc_dynamic_ema_fast(vals, p_vals):
+    # el mismo loop for que ya tenemos...
+Con agregar esa simple línea, el loop pasa a ejecutarse a la velocidad del procesador nativo. Pero agregar la dependencia de numba ahora mismo haría la instalación de tu entorno de producción más pesada y propensa a errores de compatibilidad entre sistemas operativos sin una necesidad real.
+
+Así que sí, deuda técnica documentada y aceptada. El Bot 3 queda sellado.
+
+
+-----------------------
+
+order_executor.py aprobado. Limpio y el reduceOnly=True en el cierre es innegociable. ✅
+Un detalle a tener en cuenta para cuando integremos con los bots:
+Los bots trackean position_size_usd, no quantity en cripto
+python# Los bots guardan esto al abrir:
+self.position_size_usd = size  # ej: $62.50
+
+# Pero close_position necesita quantity en cripto:
+# quantity = position_size_usd / entry_price
+# ej: 62.50 / 43000 = 0.001453 BTC
+Cada bot va a necesitar calcular esa conversión antes de llamar al executor en _close_position.
+
+
+
+.------------------
+
+python oracles/sentiment_daemon.py
+
+python -m streamlit run dashboard/app.py
+
+python main.py

@@ -1,0 +1,151 @@
+import os
+import time
+import logging
+import feedparser
+from pathlib import Path
+from google import genai
+from google.genai import types
+from dotenv import load_dotenv
+
+load_dotenv()
+
+# Configuración del Logger
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - [SENTIMENT DAEMON] - %(levelname)s - %(message)s'
+)
+
+class SentimentOracle:
+    """
+    Daemon asíncrono que lee RSS Feeds de cripto, pide un análisis 
+    de sentimiento a Gemini, y guarda el resultado de forma atómica en caché.
+    """
+    
+    def __init__(self, api_key: str, output_file: str = "sentiment_score.txt", interval_minutes: int = 5):
+        self.client = genai.Client(api_key=api_key)
+        
+        # Usamos directamente la versión 2.5 que tiene el Free Tier habilitado sin tarjeta
+        self.model_name = "gemini-2.5-flash" 
+        
+        # Fuentes RSS 100% gratuitas y de alta calidad
+        self.rss_feeds = [
+            "https://cointelegraph.com/rss",
+            "https://www.coindesk.com/arc/outboundfeeds/rss/"
+        ]
+        
+        self.output_file = Path(output_file)
+        self.temp_file = self.output_file.with_suffix('.tmp')
+        self.interval = interval_minutes * 60
+        self._running = False
+
+    def fetch_latest_news(self) -> str:
+        """Obtiene los titulares más recientes combinando múltiples RSS feeds."""
+        headlines = []
+        
+        for url in self.rss_feeds:
+            try:
+                # feedparser procesa el XML y lo convierte en un diccionario de Python
+                feed = feedparser.parse(url)
+                
+                # Agarramos los 5 titulares más frescos de cada fuente
+                for entry in feed.entries[:5]:
+                    headlines.append(entry.title)
+            except Exception as e:
+                logging.error(f"Falla al leer RSS de {url}: {e}")
+                
+        if not headlines:
+            return ""
+            
+        # Mezclamos y limitamos a 10 titulares en total para no saturar el prompt
+        return "\n".join(headlines[:10])
+
+    def get_gemini_score(self, news_context: str) -> int:
+        """Envía los titulares a Gemini y fuerza una respuesta estrictamente numérica."""
+        if not news_context:
+            logging.warning("No hay noticias para analizar. Retornando score neutral (5).")
+            return 5
+
+        prompt = f"""
+        Sos un analista cuantitativo institucional de criptomonedas.
+        Lee los siguientes titulares recientes del mercado:
+        
+        {news_context}
+        
+        Evaluá el sentimiento general del mercado basándote exclusivamente en estos titulares.
+        Respondé ÚNICAMENTE con un número entero del 1 al 10, donde:
+        1 = Pánico extremo / Mercado altamente bajista
+        5 = Neutral / Indecisión
+        10 = Euforia extrema / Mercado altamente alcista
+        
+        No incluyas ninguna explicación, texto adicional ni formato. Solo el número.
+        """
+
+        try:
+            response = self.client.models.generate_content(
+                model=self.model_name,
+                contents=prompt,
+                config=types.GenerateContentConfig(
+                    temperature=0.1,
+                )
+            )
+            score = int(response.text.strip())
+            return max(1, min(10, score))
+            
+        except ValueError:
+            logging.error(f"Gemini devolvió un formato no numérico. Retornando neutral (5).")
+            return 5
+        except Exception as e:
+            logging.error(f"Error en la API de Gemini: {e}")
+            return 5
+
+    def write_score_atomically(self, score: int):
+        """Guarda el score usando escritura atómica."""
+        try:
+            with open(self.temp_file, 'w', encoding='utf-8') as f:
+                f.write(str(score))
+                f.flush()
+                os.fsync(f.fileno())
+            os.replace(self.temp_file, self.output_file)
+            logging.info(f"Score actualizado exitosamente: {score}")
+        except Exception as e:
+            logging.error(f"Error de I/O al escribir el score atómico: {e}")
+
+    @staticmethod
+    def read_cached_score(filepath: str = "sentiment_score.txt", default: int = 5) -> int:
+        """
+        Lectura segura del caché. Retorna default si el archivo no existe o está corrompido.
+        Método estático para que el Bot 4 lo llame sin instanciar la clase completa.
+        """
+        try:
+            return max(1, min(10, int(Path(filepath).read_text().strip())))
+        except Exception:
+            return default
+
+    def run(self):
+        """Bucle principal del Daemon."""
+        self._running = True
+        logging.info(f"Sentiment Daemon iniciado. Conectado a {self.model_name}. Intervalo: {self.interval / 60} min.")
+        
+        while self._running:
+            news = self.fetch_latest_news()
+            score = self.get_gemini_score(news)
+            self.write_score_atomically(score)
+            time.sleep(self.interval)
+
+if __name__ == "__main__":
+    GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
+    
+    if not GEMINI_API_KEY:
+        logging.critical("Falta la variable de entorno GEMINI_API_KEY. Abortando.")
+        exit(1)
+        
+    daemon = SentimentOracle(
+        api_key=GEMINI_API_KEY,
+        output_file="sentiment_score.txt", 
+        interval_minutes=5
+    )
+    
+    try:
+        daemon.run()
+    except KeyboardInterrupt:
+        logging.info("Apagado manual detectado. Cerrando Daemon.")
